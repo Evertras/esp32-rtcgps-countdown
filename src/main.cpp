@@ -1,4 +1,7 @@
 #include <Arduino.h>
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
 #include <Wire.h>
 #include "RTClib.h"
 #include "SoftwareSerial.h"
@@ -9,6 +12,9 @@
 #define SEGMENT_CLOCK 33
 #define SEGMENT_LATCH 27
 #define SEGMENT_DATA 32
+
+#define BLE_SERVICE_UUID                 "3000df4c-06f3-464a-b2ea-58d624db1abd"
+#define BLE_DATETIME_CHARACTERISTIC_UUID "5b919181-93a6-4abc-9aa6-c9a9b6c06760"
 
 // October 26th 4 PM JST
 #define TARGET_UTC_MONTH 10
@@ -21,6 +27,28 @@ TinyGPSPlus gps;
 
 uint32_t targetUnixTime;
 uint32_t lastSeenUnixTime;
+
+class CountdownCallbacks: public BLECharacteristicCallbacks
+{
+  void onWrite(BLECharacteristic *pCharacteristic)
+  {
+    std::string value = pCharacteristic->getValue();
+
+    if (value.length() > 0)
+    {
+      Serial.println("*********");
+      Serial.print("New value: ");
+
+      DateTime updated(value.c_str());
+
+      Serial.printf("%d-%d-%d %d:%d:%d (UTC)", updated.year(), updated.month(), updated.day(), updated.hour(), updated.minute(), updated.second());
+      Serial.println();
+      Serial.println("Time updated...");
+      rtc.adjust(updated);
+      Serial.println("*********");
+    }
+  }
+};
 
 void setup() {
   DateTime targetTime("2021-10-26 07:00:00");
@@ -44,6 +72,26 @@ void setup() {
   digitalWrite(SEGMENT_CLOCK, LOW);
   digitalWrite(SEGMENT_DATA, LOW);
   digitalWrite(SEGMENT_LATCH, LOW);
+
+  BLEDevice::init("Countdown");
+  BLEServer *pServer = BLEDevice::createServer();
+  BLEService *pService = pServer->createService(BLE_SERVICE_UUID);
+  BLECharacteristic *pCharacteristic = pService->createCharacteristic(
+                                         BLE_DATETIME_CHARACTERISTIC_UUID,
+                                         BLECharacteristic::PROPERTY_READ |
+                                         BLECharacteristic::PROPERTY_WRITE |
+                                         BLECharacteristic::PROPERTY_WRITE_NR
+                                       );
+  pCharacteristic->setCallbacks(new CountdownCallbacks());
+  pCharacteristic->setValue("UNSET");
+  pService->start();
+  // BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(BLE_SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
 
   Serial.println("Finished setup");
 }
