@@ -6,6 +6,7 @@
 #include "RTClib.h"
 #include "SoftwareSerial.h"
 #include "TinyGPS++.h"
+#include <sys/time.h>
 
 #define GPS_RX_PIN 16
 #define GPS_TX_PIN 17
@@ -38,13 +39,16 @@ class CountdownCallbacks: public BLECharacteristicCallbacks
     {
       Serial.println("*********");
       Serial.print("New value: ");
-
       DateTime updated(value.c_str());
-
       Serial.printf("%d-%d-%d %d:%d:%d (UTC)", updated.year(), updated.month(), updated.day(), updated.hour(), updated.minute(), updated.second());
+
+      rtc.adjust(updated);
+      struct timeval tv;
+      tv.tv_sec = updated.unixtime();
+      settimeofday(&tv, NULL);
+
       Serial.println();
       Serial.println("Time updated...");
-      rtc.adjust(updated);
       Serial.println("*********");
     }
   }
@@ -171,7 +175,7 @@ void showDate(int days, int hours, int minutes, int seconds)
 }
 
 void printRemainingTime() {
-  uint32_t remainingTotalSeconds = targetUnixTime - rtc.now().unixtime();
+  uint32_t remainingTotalSeconds = targetUnixTime - lastSeenUnixTime;
   uint32_t remainingTotalMinutes = remainingTotalSeconds / 60;
   uint32_t remainingTotalHours = remainingTotalMinutes / 60;
   uint32_t remainingTotalDays = remainingTotalHours / 24;
@@ -214,10 +218,24 @@ void loop() {
     }
   }
 
-  DateTime now = rtc.now();
+  if (rtc.isrunning()) {
+    DateTime now = rtc.now();
 
-  if (now.unixtime() != lastSeenUnixTime) {
-    printRemainingTime();
-    lastSeenUnixTime = now.unixtime();
+    if (now.unixtime() != lastSeenUnixTime) {
+      printRemainingTime();
+      lastSeenUnixTime = now.unixtime();
+    }
+  } else {
+    time_t now;
+    struct tm timeDetails;
+
+    time(&now);
+
+    if (now != lastSeenUnixTime) {
+      printRemainingTime();
+      lastSeenUnixTime = now;
+
+      Serial.println(now);
+    }
   }
 }
